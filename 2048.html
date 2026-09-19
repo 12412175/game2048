@@ -1,0 +1,279 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta name="x-poe-datastore-behavior" content="local_only"><meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://code.jquery.com https://unpkg.com https://d3js.org https://threejs.org https://cdn.plot.ly https://stackpath.bootstrapcdn.com https://maps.googleapis.com https://cdn.tailwindcss.com https://ajax.googleapis.com https://kit.fontawesome.com https://cdn.datatables.net https://maxcdn.bootstrapcdn.com https://code.highcharts.com https://tako-static-assets-production.s3.amazonaws.com https://www.youtube.com https://fonts.googleapis.com https://fonts.gstatic.com https://pfst.cf2.poecdn.net https://puc.poecdn.net https://i.imgur.com https://wikimedia.org https://*.icons8.com https://*.giphy.com https://picsum.photos https://images.unsplash.com; frame-src 'self' https://www.youtube.com https://trytako.com; child-src 'self'; manifest-src 'self'; worker-src 'self'; upgrade-insecure-requests; block-all-mixed-content;">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>2048</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    height: 100%;
+    background: #faf8ef;
+    font-family: "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex; justify-content: center; align-items: flex-start;
+    overscroll-behavior: none;
+    touch-action: none;
+  }
+  .wrap {
+    width: 100%;
+    max-width: 480px;
+    padding: 16px;
+  }
+  .header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px;
+  }
+  .title { font-size: 48px; font-weight: 800; color: #776e65; }
+  .scores { display: flex; gap: 8px; }
+  .score-box {
+    background: #bbada0; color: #eee4da; border-radius: 6px;
+    padding: 6px 14px; text-align: center; min-width: 70px;
+  }
+  .score-box .label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+  .score-box .val { font-size: 22px; font-weight: 800; color: #fff; }
+  .tips {
+    display: flex; justify-content: space-between; align-items: center;
+    color: #776e65; font-size: 14px; margin-bottom: 12px;
+  }
+  .restart {
+    background: #8f7a66; color: #f9f6f2; border: none; border-radius: 6px;
+    padding: 8px 14px; font-size: 14px; font-weight: 700; cursor: pointer;
+  }
+  .board {
+    position: relative;
+    background: #bbada0;
+    border-radius: 8px;
+    padding: 3.5%;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+  }
+  .grid, .tiles {
+    position: absolute;
+    top: 3.5%; left: 3.5%; right: 3.5%; bottom: 3.5%;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: repeat(4, 1fr);
+    gap: 3.5%;
+  }
+  .cell {
+    background: rgba(238, 228, 218, 0.35);
+    border-radius: 6px;
+  }
+  .tiles { pointer-events: none; }
+  .tile {
+    display: flex; justify-content: center; align-items: center;
+    border-radius: 6px;
+    font-weight: 800;
+    color: #776e65;
+    transition: transform 0.1s ease;
+  }
+  .tile.pop { animation: pop 0.15s ease; }
+  @keyframes pop { 0%{transform:scale(0.5);} 100%{transform:scale(1);} }
+
+  .overlay {
+    position: absolute; inset: 0;
+    display: none;
+    justify-content: center; align-items: center;
+    flex-direction: column;
+    background: rgba(238, 228, 218, 0.73);
+    border-radius: 8px; z-index: 10;
+  }
+  .overlay.show { display: flex; }
+  .overlay .msg { font-size: 44px; font-weight: 800; color: #776e65; margin-bottom: 16px; }
+  .overlay button {
+    background: #8f7a66; color: #f9f6f2; border: none; border-radius: 6px;
+    padding: 10px 20px; font-size: 16px; font-weight: 700; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="title">2048</div>
+    <div class="scores">
+      <div class="score-box"><div class="label">得分</div><div class="val" id="score">0</div></div>
+      <div class="score-box"><div class="label">最高</div><div class="val" id="best">0</div></div>
+    </div>
+  </div>
+  <div class="tips">
+    <span>滑动屏幕移动方块</span>
+    <button class="restart" id="restart">重新开始</button>
+  </div>
+  <div class="board" id="board">
+    <div class="grid" id="grid"></div>
+    <div class="tiles" id="tiles"></div>
+    <div class="overlay" id="overlay">
+      <div class="msg" id="msg"></div>
+      <button id="again">再来一局</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SIZE = 4;
+let matrix = [];
+let score = 0;
+let best = 0;
+let over = false;
+let won = false;
+
+const colors = {
+  0:'#cdc1b4',2:'#eee4da',4:'#ede0c8',8:'#f2b179',16:'#f59563',
+  32:'#f67c5f',64:'#f65e3b',128:'#edcf72',256:'#edcc61',512:'#edc850',
+  1024:'#edc53f',2048:'#edc22e'
+};
+const textColors = {2:'#776e65',4:'#776e65'}; // 其余用白色
+
+const gridEl = document.getElementById('grid');
+const tilesEl = document.getElementById('tiles');
+const scoreEl = document.getElementById('score');
+const bestEl = document.getElementById('best');
+const overlay = document.getElementById('overlay');
+const msgEl = document.getElementById('msg');
+
+// 背景网格
+for (let i = 0; i < SIZE*SIZE; i++) {
+  const c = document.createElement('div');
+  c.className = 'cell';
+  gridEl.appendChild(c);
+}
+
+function initGame() {
+  matrix = Array.from({length: SIZE}, () => Array(SIZE).fill(0));
+  score = 0; over = false; won = false;
+  overlay.classList.remove('show');
+  createNum(); createNum();
+  render();
+}
+
+function getEmpty() {
+  const list = [];
+  for (let i = 0; i < SIZE; i++)
+    for (let j = 0; j < SIZE; j++)
+      if (matrix[i][j] === 0) list.push([i, j]);
+  return list;
+}
+
+function createNum() {
+  const empty = getEmpty();
+  if (!empty.length) return;
+  const [x, y] = empty[Math.floor(Math.random() * empty.length)];
+  matrix[x][y] = Math.random() < 0.25 ? 4 : 2; // 2和4约3:1
+}
+
+// 把一行/一列向左"挤压+合并"，返回是否发生了移动
+function slide(line) {
+  let arr = line.filter(v => v !== 0);
+  let moved = arr.length !== line.length;
+  for (let i = 0; i < arr.length - 1; i++) {
+    if (arr[i] === arr[i+1]) {
+      arr[i] *= 2;
+      score += arr[i];
+      if (arr[i] === 2048) won = true;
+      arr.splice(i+1, 1);
+      moved = true;
+    }
+  }
+  while (arr.length < SIZE) arr.push(0);
+  for (let i = 0; i < SIZE; i++) if (arr[i] !== line[i]) moved = true;
+  return { arr, moved };
+}
+
+function move(dir) {
+  if (over) return;
+  let moved = false;
+  const before = JSON.stringify(matrix);
+
+  if (dir === 'left' || dir === 'right') {
+    for (let i = 0; i < SIZE; i++) {
+      let row = matrix[i].slice();
+      if (dir === 'right') row.reverse();
+      let { arr } = slide(row);
+      if (dir === 'right') arr.reverse();
+      matrix[i] = arr;
+    }
+  } else {
+    for (let j = 0; j < SIZE; j++) {
+      let col = [];
+      for (let i = 0; i < SIZE; i++) col.push(matrix[i][j]);
+      if (dir === 'down') col.reverse();
+      let { arr } = slide(col);
+      if (dir === 'down') arr.reverse();
+      for (let i = 0; i < SIZE; i++) matrix[i][j] = arr[i];
+    }
+  }
+
+  moved = before !== JSON.stringify(matrix);
+  if (moved) {
+    createNum();
+    render();
+    if (won) { showOverlay('你赢了!'); }
+    else if (isGameOver()) { over = true; showOverlay('游戏结束'); }
+  }
+}
+
+function isGameOver() {
+  if (getEmpty().length) return false;
+  for (let i = 0; i < SIZE; i++)
+    for (let j = 0; j < SIZE; j++) {
+      if (j < SIZE-1 && matrix[i][j] === matrix[i][j+1]) return false;
+      if (i < SIZE-1 && matrix[i][j] === matrix[i+1][j]) return false;
+    }
+  return true;
+}
+
+function render() {
+  tilesEl.innerHTML = '';
+  for (let i = 0; i < SIZE; i++) {
+    for (let j = 0; j < SIZE; j++) {
+      const v = matrix[i][j];
+      const t = document.createElement('div');
+      t.className = 'tile' + (v ? ' pop' : '');
+      t.style.background = colors[v] || '#3c3a32';
+      t.style.color = v > 4 ? '#f9f6f2' : (textColors[v] || '#776e65');
+      if (v) {
+        t.textContent = v;
+        // 数字越大字号越小
+        t.style.fontSize = v < 100 ? '2em' : v < 1000 ? '1.6em' : '1.3em';
+      }
+      tilesEl.appendChild(t);
+    }
+  }
+  scoreEl.textContent = score;
+  if (score > best) best = score;
+  bestEl.textContent = best;
+}
+
+function showOverlay(text) {
+  msgEl.textContent = text;
+  overlay.classList.add('show');
+}
+
+// 键盘
+document.addEventListener('keydown', e => {
+  const map = {ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right'};
+  if (map[e.key]) { e.preventDefault(); move(map[e.key]); }
+  if (e.key === 'Escape') initGame();
+});
+
+// 触摸滑动
+let sx = 0, sy = 0;
+const board = document.getElementById('board');
+board.addEventListener('touchstart', e => {
+  sx = e.touches[0].clientX; sy = e.touches[0].clientY;
+}, {passive: true});
+board.addEventListener('touchend', e => {
+  const dx = e.changedTouches[0].clientX - sx;
+  const dy = e.changedTouches[0].clientY - sy;
+  const ax = Math.abs(dx), ay = Math.abs(dy);
+  if (Math.max(ax, ay) < 20) return; // 太短忽略
+  if (ax > ay) move(dx > 0 ? 'right' : 'left');
+  else move(dy > 0 ? 'down' : 'up');
+}, {passive: true});
+
+document.getElementById('restart').addEventListener('click', initGame);
+document.getElementById('again').addEventListener('click', initGame);
+
+initGame();
+</script>
+
+
+</body></html>
