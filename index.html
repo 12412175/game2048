@@ -47,14 +47,24 @@
   }
   .tiles { pointer-events: none; }
   .tile {
+    position: relative;
     display: flex; justify-content: center; align-items: center;
     border-radius: 6px;
     font-weight: 800;
     color: #776e65;
     transition: transform 0.1s ease;
+    overflow: hidden;
   }
   .tile.pop { animation: pop 0.15s ease; }
   @keyframes pop { 0%{transform:scale(0.5);} 100%{transform:scale(1);} }
+  /* 图片充满整个方块，圆角与方块一致 */
+  .tile img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;   /* 想让图片铺满可改成 cover */
+    border-radius: 6px;
+    display: block;
+  }
 
   .overlay {
     position: absolute; inset: 0;
@@ -99,10 +109,10 @@ let matrix = [];
 let score = 0;
 let over = false;
 let won = false;
-let maxEver = 0;              // 本局出现过的最大值
-let history = [];            // 撤销历史
-let savedState = null;       // 内存中的存档（备用）
-let savedSinceLastMove = false; // 本次移动后是否已存档
+let maxEver = 0;
+let history = [];
+let savedState = null;
+let savedSinceLastMove = false;
 
 const SAVE_KEY = 'game2048_save';
 
@@ -113,6 +123,21 @@ const colors = {
 };
 const textColors = {2:'#776e65',4:'#776e65'};
 
+// ★ 数值 → 图片地址 对照表 ★
+const IMAGES = {
+  2:    '',
+  4:    '',
+  8:    '',
+  16:   '',
+  32:   '',
+  64:   '',
+  128:  '',
+  256:  '',
+  512:  '',
+  1024: '',
+  2048: ''
+};
+
 const gridEl = document.getElementById('grid');
 const tilesEl = document.getElementById('tiles');
 const overlay = document.getElementById('overlay');
@@ -121,14 +146,13 @@ const undoBtn = document.getElementById('undo');
 const saveBtn = document.getElementById('save');
 const loadSaveBtn = document.getElementById('loadSave');
 
-// 背景网格
 for (let i = 0; i < SIZE*SIZE; i++) {
   const c = document.createElement('div');
   c.className = 'cell';
   gridEl.appendChild(c);
 }
 
-// ---------- 存档读写（localStorage + 内存备用） ----------
+// ---------- 存档读写 ----------
 function writeSave(state) {
   savedState = state;
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch(e) {}
@@ -190,7 +214,6 @@ function currentMax() {
   return m;
 }
 
-// 场上是否存在数值 <= val 的方块
 function hasTileLE(val) {
   for (let i = 0; i < SIZE; i++)
     for (let j = 0; j < SIZE; j++)
@@ -198,18 +221,14 @@ function hasTileLE(val) {
   return false;
 }
 
-// 计算新方块的最小值
-// 规则：max>=1024 且 无<=2 的方块 -> 最小 4
-//       max>=2048 且 无<=4 的方块 -> 最小 8
-//       max>=4096 且 无<=8 的方块 -> 最小 16 …以此类推
 function newTileMin() {
   const m = currentMax();
   let minVal = 2;
   for (let n = 1; ; n++) {
-    const threshold = 1024 * Math.pow(2, n - 1); // 1024, 2048, 4096 …
-    const lowLimit  = Math.pow(2, n);            // 2, 4, 8 …
+    const threshold = 1024 * Math.pow(2, n - 1);
+    const lowLimit  = Math.pow(2, n);
     if (m >= threshold && !hasTileLE(lowLimit)) {
-      minVal = Math.pow(2, n + 1);               // 4, 8, 16 …
+      minVal = Math.pow(2, n + 1);
     } else {
       break;
     }
@@ -217,7 +236,6 @@ function newTileMin() {
   return minVal;
 }
 
-// 空位是否与已有方块相邻（上下左右）
 function isAdjacentToTile(x, y) {
   const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
   for (const [dx, dy] of dirs) {
@@ -231,14 +249,9 @@ function isAdjacentToTile(x, y) {
 function createNum() {
   const empty = getEmpty();
   if (!empty.length) return;
-
-  // 优先选择不与已有方块相邻的空位；若不存在则退回全部空位
   let candidates = empty.filter(([x, y]) => !isAdjacentToTile(x, y));
   if (!candidates.length) candidates = empty;
-
   const [x, y] = candidates[Math.floor(Math.random() * candidates.length)];
-
-  // 根据规则确定数值：最小值 minVal（75%），或其两倍（25%）
   const minVal = newTileMin();
   matrix[x][y] = Math.random() < 0.25 ? minVal * 2 : minVal;
 }
@@ -329,10 +342,27 @@ function render() {
       const t = document.createElement('div');
       t.className = 'tile' + (v ? ' pop' : '');
       t.style.background = colors[v] || '#3c3a32';
-      t.style.color = v > 4 ? '#f9f6f2' : (textColors[v] || '#776e65');
+
       if (v) {
-        t.textContent = v;
-        t.style.fontSize = v < 100 ? '10vw' : v < 1000 ? '8vw' : '6vw';
+        const src = IMAGES[v];
+        if (src) {
+          const img = document.createElement('img');
+          img.src = src;
+          img.alt = v;
+          // 图片加载失败时自动回退成数字
+          img.onerror = () => {
+            t.removeChild(img);
+            t.style.color = v > 4 ? '#f9f6f2' : (textColors[v] || '#776e65');
+            t.textContent = v;
+            t.style.fontSize = v < 100 ? '10vw' : v < 1000 ? '8vw' : '6vw';
+          };
+          t.appendChild(img);
+        } else {
+          // 没配图：回退成数字
+          t.style.color = v > 4 ? '#f9f6f2' : (textColors[v] || '#776e65');
+          t.textContent = v;
+          t.style.fontSize = v < 100 ? '10vw' : v < 1000 ? '8vw' : '6vw';
+        }
       }
       tilesEl.appendChild(t);
     }
