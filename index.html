@@ -10,7 +10,8 @@
     min-height: 100%;
     background: #faf8ef;
     font-family: "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
-    display: flex; flex-direction: column; align-items: center;
+    display: flex; flex-direction: column; align-items: center;  
+    justify-content: center;                                      
     overscroll-behavior: none;
     touch-action: none;
   }
@@ -23,6 +24,7 @@
     padding: 10px 18px; font-size: 15px; font-weight: 700; cursor: pointer;
   }
   .controls button:disabled { opacity: 0.4; cursor: default; }
+  .controls button.active { background: #f65e3b; }             
 
   .board {
     position: relative;
@@ -32,6 +34,7 @@
     height: 100vw;
     max-width: 600px;
     max-height: 600px;
+    margin: 0 auto;                                            
   }
   .grid, .tiles {
     position: absolute;
@@ -57,11 +60,10 @@
   }
   .tile.pop { animation: pop 0.15s ease; }
   @keyframes pop { 0%{transform:scale(0.5);} 100%{transform:scale(1);} }
-  /* 图片充满整个方块，圆角与方块一致 */
   .tile img {
     width: 100%;
     height: 100%;
-    object-fit: contain;   /* 想让图片铺满可改成 cover */
+    object-fit: contain;
     border-radius: 6px;
     display: block;
   }
@@ -103,8 +105,14 @@
     </div>
   </div>
 
+  <div class="controls">
+    <button id="auto">智能托管</button>
+    <button id="rearrange">智能重排</button>
+  </div>
+
 <script>
 const SIZE = 4;
+const WIN_VALUE = 131072;  
 let matrix = [];
 let score = 0;
 let over = false;
@@ -113,6 +121,7 @@ let maxEver = 0;
 let history = [];
 let savedState = null;
 let savedSinceLastMove = false;
+let autoTimer = null;       
 
 const SAVE_KEY = 'game2048_save';
 
@@ -123,19 +132,25 @@ const colors = {
 };
 const textColors = {2:'#776e65',4:'#776e65'};
 
-// ★ 数值 → 图片地址 对照表 ★
+// 数值 → 图片地址 对照表（补全到 65536）
+const IMG_BASE = 'https://raw.githubusercontent.com/12412175/game2048/main/images/';
 const IMAGES = {
-  2:    'https://raw.githubusercontent.com/12412175/game2048/main/images/2.png',
-  4:    'https://raw.githubusercontent.com/12412175/game2048/main/images/4.png',
-  8:    'https://raw.githubusercontent.com/12412175/game2048/main/images/8.png',
-  16:   'https://raw.githubusercontent.com/12412175/game2048/main/images/16.png',
-  32:   'https://raw.githubusercontent.com/12412175/game2048/main/images/32.png',
-  64:   'https://raw.githubusercontent.com/12412175/game2048/main/images/64.png',
-  128:  'https://raw.githubusercontent.com/12412175/game2048/main/images/128.png',
-  256:  'https://raw.githubusercontent.com/12412175/game2048/main/images/256.png',
-  512:  '',
-  1024: '',
-  2048: ''
+  2:     IMG_BASE + '2.png',
+  4:     IMG_BASE + '4.png',
+  8:     IMG_BASE + '8.png',
+  16:    IMG_BASE + '16.png',
+  32:    IMG_BASE + '32.png',
+  64:    IMG_BASE + '64.png',
+  128:   IMG_BASE + '128.png',
+  256:   IMG_BASE + '256.png',
+  512:   IMG_BASE + '512.png',
+  1024:  IMG_BASE + '1024.png',
+  2048:  IMG_BASE + '2048.png',
+  4096:  IMG_BASE + '4096.png',
+  8192:  IMG_BASE + '8192.png',
+  16384: IMG_BASE + '16384.png',
+  32768: IMG_BASE + '32768.png',
+  65536: IMG_BASE + '65536.png'
 };
 
 const gridEl = document.getElementById('grid');
@@ -145,6 +160,7 @@ const msgEl = document.getElementById('msg');
 const undoBtn = document.getElementById('undo');
 const saveBtn = document.getElementById('save');
 const loadSaveBtn = document.getElementById('loadSave');
+const autoBtn = document.getElementById('auto');          
 
 for (let i = 0; i < SIZE*SIZE; i++) {
   const c = document.createElement('div');
@@ -189,6 +205,7 @@ function applyState(state) {
 
 // ---------- 游戏逻辑 ----------
 function initGame() {
+  stopAuto();                
   matrix = Array.from({length: SIZE}, () => Array(SIZE).fill(0));
   score = 0; over = false; won = false; maxEver = 0;
   history = [];
@@ -221,14 +238,15 @@ function hasTileLE(val) {
   return false;
 }
 
+// 最小方块机制：512停2、1024停4、2048停8……
 function newTileMin() {
   const m = currentMax();
   let minVal = 2;
   for (let n = 1; ; n++) {
-    const threshold = 1024 * Math.pow(2, n - 1);
-    const lowLimit  = Math.pow(2, n);
+    const threshold = 512 * Math.pow(2, n - 1);   // 512, 1024, 2048, ...
+    const lowLimit  = Math.pow(2, n);             // 2, 4, 8, ...
     if (m >= threshold && !hasTileLE(lowLimit)) {
-      minVal = Math.pow(2, n + 1);
+      minVal = Math.pow(2, n + 1);                // 4, 8, 16, ...
     } else {
       break;
     }
@@ -253,7 +271,7 @@ function createNum() {
   if (!candidates.length) candidates = empty;
   const [x, y] = candidates[Math.floor(Math.random() * candidates.length)];
   const minVal = newTileMin();
-  matrix[x][y] = Math.random() < 0.25 ? minVal * 2 : minVal;
+  matrix[x][y] = Math.random() < 0.9 ? minVal : minVal * 2;
 }
 
 function slide(line) {
@@ -262,7 +280,7 @@ function slide(line) {
     if (arr[i] === arr[i+1]) {
       arr[i] *= 2;
       score += arr[i];
-      if (arr[i] === 2048) won = true;
+      if (arr[i] === WIN_VALUE) won = true;   // 胜利条件 131072
       arr.splice(i+1, 1);
     }
   }
@@ -308,8 +326,8 @@ function move(dir) {
     writeSave(makeState());
   }
 
-  if (won) { showOverlay('你赢了!'); }
-  else if (isGameOver()) { over = true; showOverlay('游戏结束'); }
+  if (won) { stopAuto(); showOverlay('前面的区域以后再来探索吧'); }
+  else if (isGameOver()) { over = true; stopAuto(); showOverlay('游戏结束'); }
 }
 
 function isGameOver() {
@@ -324,6 +342,7 @@ function isGameOver() {
 
 function undo() {
   if (!history.length) return;
+  stopAuto();                 
   const prev = history.pop();
   matrix = prev.matrix.map(r => r.slice());
   score = prev.score;
@@ -331,6 +350,51 @@ function undo() {
   over = false; won = false;
   savedSinceLastMove = false;
   overlay.classList.remove('show');
+  render();
+}
+
+function toggleAuto() {
+  if (autoTimer) { stopAuto(); return; }
+  if (over) return;
+  autoBtn.classList.add('active');
+  autoBtn.textContent = '停止托管';
+  autoTimer = setInterval(() => {
+    if (over || getEmpty().length === 0) { stopAuto(); return; }
+    const dirs = ['up', 'down', 'left', 'right'];
+    move(dirs[Math.floor(Math.random() * dirs.length)]);
+    if (over || getEmpty().length === 0) stopAuto();
+  }, 220);
+}
+function stopAuto() {
+  if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+  autoBtn.classList.remove('active');
+  autoBtn.textContent = '智能托管';
+}
+
+function smartRearrange() {
+  stopAuto();
+  const vals = [];
+  for (let i = 0; i < SIZE; i++)
+    for (let j = 0; j < SIZE; j++)
+      if (matrix[i][j]) vals.push(matrix[i][j]);
+  if (!vals.length) return;
+  vals.sort((a, b) => b - a);  
+
+  const order = [
+    [3,3],[3,2],[3,1],[3,0],
+    [2,0],[2,1],[2,2],[2,3],
+    [1,3],[1,2],[1,1],[1,0],
+    [0,0],[0,1],[0,2],[0,3]
+  ];
+
+  history.push(makeState());
+  const nm = Array.from({length: SIZE}, () => Array(SIZE).fill(0));
+  for (let k = 0; k < vals.length; k++) {
+    const [x, y] = order[k];
+    nm[x][y] = vals[k];
+  }
+  matrix = nm;
+  savedSinceLastMove = false;
   render();
 }
 
@@ -349,25 +413,31 @@ function render() {
           const img = document.createElement('img');
           img.src = src;
           img.alt = v;
-          // 图片加载失败时自动回退成数字
           img.onerror = () => {
-            t.removeChild(img);
+            if (img.parentNode === t) t.removeChild(img);
             t.style.color = v > 4 ? '#f9f6f2' : (textColors[v] || '#776e65');
             t.textContent = v;
-            t.style.fontSize = v < 100 ? '10vw' : v < 1000 ? '8vw' : '6vw';
+            t.style.fontSize = fontSizeFor(v);
           };
           t.appendChild(img);
         } else {
-          // 没配图：回退成数字
           t.style.color = v > 4 ? '#f9f6f2' : (textColors[v] || '#776e65');
           t.textContent = v;
-          t.style.fontSize = v < 100 ? '10vw' : v < 1000 ? '8vw' : '6vw';
+          t.style.fontSize = fontSizeFor(v);
         }
       }
       tilesEl.appendChild(t);
     }
   }
   updateButtons();
+}
+
+function fontSizeFor(v) {
+  if (v < 100) return '10vw';
+  if (v < 1000) return '8vw';
+  if (v < 10000) return '6vw';
+  if (v < 100000) return '4.5vw';
+  return '3.3vw';
 }
 
 function updateButtons() {
@@ -385,7 +455,7 @@ function showOverlay(text) {
 // ---------- 事件 ----------
 document.addEventListener('keydown', e => {
   const map = {ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right'};
-  if (map[e.key]) { e.preventDefault(); move(map[e.key]); }
+  if (map[e.key]) { e.preventDefault(); stopAuto(); move(map[e.key]); }
   if (e.key === 'Escape') initGame();
 });
 
@@ -399,6 +469,7 @@ board.addEventListener('touchend', e => {
   const dy = e.changedTouches[0].clientY - sy;
   const ax = Math.abs(dx), ay = Math.abs(dy);
   if (Math.max(ax, ay) < 20) return;
+  stopAuto();
   if (ax > ay) move(dx > 0 ? 'right' : 'left');
   else move(dy > 0 ? 'down' : 'up');
 }, {passive: true});
@@ -411,6 +482,8 @@ document.getElementById('loadSave').addEventListener('click', () => {
   const s = readSave();
   if (s) applyState(s);
 });
+document.getElementById('auto').addEventListener('click', toggleAuto);        
+document.getElementById('rearrange').addEventListener('click', smartRearrange); 
 
 initGame();
 </script>
