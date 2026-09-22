@@ -10,8 +10,8 @@
     min-height: 100%;
     background: #faf8ef;
     font-family: "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
-    display: flex; flex-direction: column; align-items: center;  
-    justify-content: center;                                      
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center;
     overscroll-behavior: none;
     touch-action: none;
   }
@@ -24,7 +24,7 @@
     padding: 10px 18px; font-size: 15px; font-weight: 700; cursor: pointer;
   }
   .controls button:disabled { opacity: 0.4; cursor: default; }
-  .controls button.active { background: #f65e3b; }             
+  .controls button.active { background: #f65e3b; }
 
   .board {
     position: relative;
@@ -34,7 +34,7 @@
     height: 100vw;
     max-width: 600px;
     max-height: 600px;
-    margin: 0 auto;                                            
+    margin: 0 auto;
   }
   .grid, .tiles {
     position: absolute;
@@ -88,6 +88,7 @@
 </head>
 <body>
   <div class="controls">
+    <button id="loadTop">读取存档</button>  
     <button id="restart">重新开始</button>
     <button id="save">存档</button>
     <button id="undo">撤销</button>
@@ -112,7 +113,7 @@
 
 <script>
 const SIZE = 4;
-const WIN_VALUE = 131072;  
+const WIN_VALUE = 134217728;  
 let matrix = [];
 let score = 0;
 let over = false;
@@ -121,37 +122,28 @@ let maxEver = 0;
 let history = [];
 let savedState = null;
 let savedSinceLastMove = false;
-let autoTimer = null;       
+let autoTimer = null;
+let autoPhase = 'random';      
 
 const SAVE_KEY = 'game2048_save';
 
 const colors = {
   0:'#cdc1b4',2:'#eee4da',4:'#ede0c8',8:'#f2b179',16:'#f59563',
   32:'#f67c5f',64:'#f65e3b',128:'#edcf72',256:'#edcc61',512:'#edc850',
-  1024:'#edc53f',2048:'#edc22e'
+  1024:'#edc53f',2048:'#edc22e',
+  4096:'#3c3a32',8192:'#a333c8',16384:'#8e24aa',32768:'#5e35b1',
+  65536:'#3949ab',131072:'#1e88e5',262144:'#039be5',524288:'#00acc1',
+  1048576:'#00897b',2097152:'#43a047',4194304:'#7cb342',8388608:'#c0ca33',
+  16777216:'#fdd835',33554432:'#ffb300',67108864:'#fb8c00',134217728:'#f4511e'
 };
 const textColors = {2:'#776e65',4:'#776e65'};
 
-// 数值 → 图片地址 对照表（补全到 65536）
 const IMG_BASE = 'https://raw.githubusercontent.com/12412175/game2048/main/images/';
-const IMAGES = {
-  2:     IMG_BASE + '2.png',
-  4:     IMG_BASE + '4.png',
-  8:     IMG_BASE + '8.png',
-  16:    IMG_BASE + '16.png',
-  32:    IMG_BASE + '32.png',
-  64:    IMG_BASE + '64.png',
-  128:   IMG_BASE + '128.png',
-  256:   IMG_BASE + '256.png',
-  512:   IMG_BASE + '512.png',
-  1024:  IMG_BASE + '1024.png',
-  2048:  IMG_BASE + '2048.png',
-  4096:  IMG_BASE + '4096.png',
-  8192:  IMG_BASE + '8192.png',
-  16384: IMG_BASE + '16384.png',
-  32768: IMG_BASE + '32768.png',
-  65536: IMG_BASE + '65536.png'
-};
+const IMAGES = {};
+for (let p = 1; p <= 27; p++) {        // 2^1=2 ... 2^27=134217728
+  const v = Math.pow(2, p);
+  IMAGES[v] = IMG_BASE + v + '.png';
+}
 
 const gridEl = document.getElementById('grid');
 const tilesEl = document.getElementById('tiles');
@@ -160,7 +152,8 @@ const msgEl = document.getElementById('msg');
 const undoBtn = document.getElementById('undo');
 const saveBtn = document.getElementById('save');
 const loadSaveBtn = document.getElementById('loadSave');
-const autoBtn = document.getElementById('auto');          
+const loadTopBtn = document.getElementById('loadTop');   
+const autoBtn = document.getElementById('auto');
 
 for (let i = 0; i < SIZE*SIZE; i++) {
   const c = document.createElement('div');
@@ -205,7 +198,7 @@ function applyState(state) {
 
 // ---------- 游戏逻辑 ----------
 function initGame() {
-  stopAuto();                
+  stopAuto();
   matrix = Array.from({length: SIZE}, () => Array(SIZE).fill(0));
   score = 0; over = false; won = false; maxEver = 0;
   history = [];
@@ -243,10 +236,10 @@ function newTileMin() {
   const m = currentMax();
   let minVal = 2;
   for (let n = 1; ; n++) {
-    const threshold = 512 * Math.pow(2, n - 1);   // 512, 1024, 2048, ...
-    const lowLimit  = Math.pow(2, n);             // 2, 4, 8, ...
+    const threshold = 512 * Math.pow(2, n - 1);
+    const lowLimit  = Math.pow(2, n);
     if (m >= threshold && !hasTileLE(lowLimit)) {
-      minVal = Math.pow(2, n + 1);                // 4, 8, 16, ...
+      minVal = Math.pow(2, n + 1);
     } else {
       break;
     }
@@ -271,6 +264,7 @@ function createNum() {
   if (!candidates.length) candidates = empty;
   const [x, y] = candidates[Math.floor(Math.random() * candidates.length)];
   const minVal = newTileMin();
+  // 90% 出最小值，10% 出次小值
   matrix[x][y] = Math.random() < 0.9 ? minVal : minVal * 2;
 }
 
@@ -280,7 +274,7 @@ function slide(line) {
     if (arr[i] === arr[i+1]) {
       arr[i] *= 2;
       score += arr[i];
-      if (arr[i] === WIN_VALUE) won = true;   // 胜利条件 131072
+      if (arr[i] === WIN_VALUE) won = true;
       arr.splice(i+1, 1);
     }
   }
@@ -326,8 +320,8 @@ function move(dir) {
     writeSave(makeState());
   }
 
-  if (won) { stopAuto(); showOverlay('前面的区域以后再来探索吧'); }
-  else if (isGameOver()) { over = true; stopAuto(); showOverlay('游戏结束'); }
+  if (won) { stopAuto(); showOverlay('已经到顶啦♥'); }
+  else if (isGameOver()) { over = true; stopAuto(); showOverlay('杂口♥ 杂口♥'); }
 }
 
 function isGameOver() {
@@ -342,7 +336,7 @@ function isGameOver() {
 
 function undo() {
   if (!history.length) return;
-  stopAuto();                 
+  stopAuto();
   const prev = history.pop();
   matrix = prev.matrix.map(r => r.slice());
   score = prev.score;
@@ -356,29 +350,61 @@ function undo() {
 function toggleAuto() {
   if (autoTimer) { stopAuto(); return; }
   if (over) return;
+  autoPhase = 'random';
   autoBtn.classList.add('active');
   autoBtn.textContent = '停止托管';
-  autoTimer = setInterval(() => {
-    if (over || getEmpty().length === 0) { stopAuto(); return; }
-    const dirs = ['up', 'down', 'left', 'right'];
-    move(dirs[Math.floor(Math.random() * dirs.length)]);
-    if (over || getEmpty().length === 0) stopAuto();
-  }, 220);
+  autoTimer = setInterval(autoStep, 220);
 }
 function stopAuto() {
   if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+  autoPhase = 'random';
   autoBtn.classList.remove('active');
   autoBtn.textContent = '智能托管';
 }
 
+// 随机选一个能真正产生移动的方向执行
+function tryRandomMove() {
+  const dirs = ['up', 'down', 'left', 'right'];
+  for (let i = dirs.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+  }
+  const before = JSON.stringify(matrix);
+  for (const d of dirs) {
+    move(d);
+    if (JSON.stringify(matrix) !== before) return true;
+  }
+  return false;
+}
+
+function autoStep() {
+  if (over || !autoTimer) { stopAuto(); return; }
+  const empty = getEmpty().length;
+
+  if (autoPhase === 'random') {
+    if (empty <= 1) { autoPhase = 'rearrange'; return; }   // 只剩1个空格，进入重排
+    const moved = tryRandomMove();
+    if (!moved) autoPhase = 'rearrange';                   // 无可动方向，也去重排
+  } else if (autoPhase === 'rearrange') {
+    smartRearrange();
+    autoPhase = 'left';
+  } else if (autoPhase === 'left') {
+    move('left');
+    autoPhase = 'right';
+  } else if (autoPhase === 'right') {
+    move('right');
+    autoPhase = 'random';                                  // 回到随机滑动
+  }
+}
+
+// 智能重排：蛇形从大到小排列
 function smartRearrange() {
-  stopAuto();
   const vals = [];
   for (let i = 0; i < SIZE; i++)
     for (let j = 0; j < SIZE; j++)
       if (matrix[i][j]) vals.push(matrix[i][j]);
   if (!vals.length) return;
-  vals.sort((a, b) => b - a);  
+  vals.sort((a, b) => b - a);
 
   const order = [
     [3,3],[3,2],[3,1],[3,0],
@@ -437,12 +463,14 @@ function fontSizeFor(v) {
   if (v < 1000) return '8vw';
   if (v < 10000) return '6vw';
   if (v < 100000) return '4.5vw';
-  return '3.3vw';
+  if (v < 10000000) return '3.3vw';
+  return '2.4vw';
 }
 
 function updateButtons() {
   undoBtn.disabled = history.length === 0;
   loadSaveBtn.disabled = !hasSave();
+  loadTopBtn.disabled = !hasSave();      
   saveBtn.disabled = savedSinceLastMove;
 }
 
@@ -482,8 +510,12 @@ document.getElementById('loadSave').addEventListener('click', () => {
   const s = readSave();
   if (s) applyState(s);
 });
-document.getElementById('auto').addEventListener('click', toggleAuto);        
-document.getElementById('rearrange').addEventListener('click', smartRearrange); 
+document.getElementById('loadTop').addEventListener('click', () => {  
+  const s = readSave();
+  if (s) applyState(s);
+});
+document.getElementById('auto').addEventListener('click', toggleAuto);
+document.getElementById('rearrange').addEventListener('click', smartRearrange);
 
 initGame();
 </script>
