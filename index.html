@@ -17,7 +17,7 @@
   }
   .controls {
     display: flex; gap: 10px; justify-content: center;
-    padding: 16px; flex-wrap: wrap; width: 100%;
+    padding: 16px; flex-wrap: wrap; width: 100%; align-items: center;
   }
   .controls button {
     background: #8f7a66; color: #f9f6f2; border: none; border-radius: 6px;
@@ -29,6 +29,7 @@
     background: #8f7a66; color: #f9f6f2; border: none; border-radius: 6px;
     padding: 10px 12px; font-size: 15px; font-weight: 700; cursor: pointer;
   }
+
   .board {
     position: relative;
     background: #bbada0;
@@ -91,7 +92,7 @@
 </head>
 <body>
   <div class="controls">
-    <button id="loadTop">读取存档</button>  
+    <button id="loadTop">读取存档</button>
     <button id="restart">重新开始</button>
     <button id="save">存档</button>
     <button id="undo">撤销</button>
@@ -110,7 +111,7 @@
   </div>
 
   <div class="controls">
-   <select id="difficulty">
+    <select id="difficulty">
       <option value="512">辅助</option>
       <option value="4096" selected>专家</option>
       <option value="nightmare">梦魇</option>
@@ -121,7 +122,7 @@
 
 <script>
 const SIZE = 4;
-const WIN_VALUE = 134217728;  
+const WIN_VALUE = 134217728;   // 胜利条件 2^27
 let matrix = [];
 let score = 0;
 let over = false;
@@ -131,7 +132,7 @@ let history = [];
 let savedState = null;
 let savedSinceLastMove = false;
 let autoTimer = null;
-let autoPhase = 'random';      
+let autoPhase = 'random';
 let difficultyBase = 4096;
 
 const SAVE_KEY = 'game2048_save';
@@ -149,7 +150,7 @@ const textColors = {2:'#776e65',4:'#776e65'};
 
 const IMG_BASE = 'https://raw.githubusercontent.com/12412175/game2048/main/images/';
 const IMAGES = {};
-for (let p = 1; p <= 27; p++) {        // 2^1=2 ... 2^27=134217728
+for (let p = 1; p <= 27; p++) {
   const v = Math.pow(2, p);
   IMAGES[v] = IMG_BASE + v + '.png';
 }
@@ -161,7 +162,7 @@ const msgEl = document.getElementById('msg');
 const undoBtn = document.getElementById('undo');
 const saveBtn = document.getElementById('save');
 const loadSaveBtn = document.getElementById('loadSave');
-const loadTopBtn = document.getElementById('loadTop');   
+const loadTopBtn = document.getElementById('loadTop');
 const autoBtn = document.getElementById('auto');
 const difficultyEl = document.getElementById('difficulty');
 
@@ -241,7 +242,6 @@ function hasTileLE(val) {
   return false;
 }
 
-// 由难度控制的最小出生值
 function newTileMin() {
   if (difficultyBase === Infinity) return 2;   // 梦魇：不停
   const m = currentMax();
@@ -275,7 +275,6 @@ function createNum() {
   if (!candidates.length) candidates = empty;
   const [x, y] = candidates[Math.floor(Math.random() * candidates.length)];
   const minVal = newTileMin();
-  // 90% 出最小值，10% 出次小值
   matrix[x][y] = Math.random() < 0.9 ? minVal : minVal * 2;
 }
 
@@ -331,8 +330,8 @@ function move(dir) {
     writeSave(makeState());
   }
 
-  if (won) { stopAuto(); showOverlay('已经到顶啦♥'); }
-  else if (isGameOver()) { over = true; stopAuto(); showOverlay('杂口♥ 杂口♥'); }
+  if (won) { stopAuto(); showOverlay('已经到底啦♥'); }
+  else if (isGameOver()) { over = true; stopAuto(); showOverlay('杂口♥杂口♥'); }
 }
 
 function isGameOver() {
@@ -358,6 +357,7 @@ function undo() {
   render();
 }
 
+// 智能托管：随机滑动到只剩1空格 → 重排 → 左 → 右 → 循环
 function toggleAuto() {
   if (autoTimer) { stopAuto(); return; }
   if (over) return;
@@ -373,7 +373,6 @@ function stopAuto() {
   autoBtn.textContent = '智能托管';
 }
 
-// 随机选一个能真正产生移动的方向执行
 function tryRandomMove() {
   const dirs = ['up', 'down', 'left', 'right'];
   for (let i = dirs.length - 1; i > 0; i--) {
@@ -393,9 +392,9 @@ function autoStep() {
   const empty = getEmpty().length;
 
   if (autoPhase === 'random') {
-    if (empty <= 1) { autoPhase = 'rearrange'; return; }   // 只剩1个空格，进入重排
+    if (empty <= 1) { autoPhase = 'rearrange'; return; }
     const moved = tryRandomMove();
-    if (!moved) autoPhase = 'rearrange';                   // 无可动方向，也去重排
+    if (!moved) autoPhase = 'rearrange';
   } else if (autoPhase === 'rearrange') {
     smartRearrange();
     autoPhase = 'left';
@@ -404,11 +403,10 @@ function autoStep() {
     autoPhase = 'right';
   } else if (autoPhase === 'right') {
     move('right');
-    autoPhase = 'random';                                  // 回到随机滑动
+    autoPhase = 'random';
   }
 }
 
-// 智能重排：蛇形从大到小排列
 function smartRearrange() {
   const vals = [];
   for (let i = 0; i < SIZE; i++)
@@ -481,7 +479,7 @@ function fontSizeFor(v) {
 function updateButtons() {
   undoBtn.disabled = history.length === 0;
   loadSaveBtn.disabled = !hasSave();
-  loadTopBtn.disabled = !hasSave();      
+  loadTopBtn.disabled = !hasSave();
   saveBtn.disabled = savedSinceLastMove;
 }
 
@@ -521,18 +519,18 @@ document.getElementById('loadSave').addEventListener('click', () => {
   const s = readSave();
   if (s) applyState(s);
 });
-document.getElementById('loadTop').addEventListener('click', () => {  
+document.getElementById('loadTop').addEventListener('click', () => {
   const s = readSave();
   if (s) applyState(s);
 });
 document.getElementById('auto').addEventListener('click', toggleAuto);
 document.getElementById('rearrange').addEventListener('click', smartRearrange);
- 
+
 difficultyEl.addEventListener('change', () => {
   const v = difficultyEl.value;
   difficultyBase = (v === 'nightmare') ? Infinity : parseInt(v, 10);
 });
- 
+
 initGame();
 </script>
 </body>
