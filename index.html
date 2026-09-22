@@ -112,7 +112,7 @@
   <div class="controls">
    <select id="difficulty">
       <option value="512">辅助</option>
-      <option value="8192" selected>专家</option>
+      <option value="4096" selected>专家</option>
       <option value="nightmare">梦魇</option>
     </select>
     <button id="auto">智能托管</button>
@@ -132,7 +132,7 @@ let savedState = null;
 let savedSinceLastMove = false;
 let autoTimer = null;
 let autoPhase = 'random';      
-let difficultyBase = 8192;
+let difficultyBase = 4096;
 
 const SAVE_KEY = 'game2048_save';
 
@@ -163,6 +163,7 @@ const saveBtn = document.getElementById('save');
 const loadSaveBtn = document.getElementById('loadSave');
 const loadTopBtn = document.getElementById('loadTop');   
 const autoBtn = document.getElementById('auto');
+const difficultyEl = document.getElementById('difficulty');
 
 for (let i = 0; i < SIZE*SIZE; i++) {
   const c = document.createElement('div');
