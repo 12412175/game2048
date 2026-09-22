@@ -107,6 +107,11 @@
   </div>
 
   <div class="controls">
+   <select id="difficulty">
+      <option value="512">辅助</option>
+      <option value="8192" selected>专家</option>
+      <option value="nightmare">梦魇</option>
+    </select>
     <button id="auto">智能托管</button>
     <button id="rearrange">智能重排</button>
   </div>
@@ -124,6 +129,7 @@ let savedState = null;
 let savedSinceLastMove = false;
 let autoTimer = null;
 let autoPhase = 'random';      
+let difficultyBase = 8192;
 
 const SAVE_KEY = 'game2048_save';
 
@@ -231,12 +237,13 @@ function hasTileLE(val) {
   return false;
 }
 
-// 最小方块机制：512停2、1024停4、2048停8……
+// 由难度控制的最小出生值
 function newTileMin() {
+  if (difficultyBase === Infinity) return 2;   // 梦魇：不停
   const m = currentMax();
   let minVal = 2;
   for (let n = 1; ; n++) {
-    const threshold = 512 * Math.pow(2, n - 1);
+    const threshold = difficultyBase * Math.pow(2, n - 1);
     const lowLimit  = Math.pow(2, n);
     if (m >= threshold && !hasTileLE(lowLimit)) {
       minVal = Math.pow(2, n + 1);
@@ -516,7 +523,12 @@ document.getElementById('loadTop').addEventListener('click', () => {
 });
 document.getElementById('auto').addEventListener('click', toggleAuto);
 document.getElementById('rearrange').addEventListener('click', smartRearrange);
-
+ 
+difficultyEl.addEventListener('change', () => {
+  const v = difficultyEl.value;
+  difficultyBase = (v === 'nightmare') ? Infinity : parseInt(v, 10);
+});
+ 
 initGame();
 </script>
 </body>
